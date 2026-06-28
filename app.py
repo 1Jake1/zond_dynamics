@@ -20,6 +20,9 @@ PANEL_BG = "#ffffff"
 HEADER_BG = "#e8eaf0"
 GRID_COLOR = "#d1d5db"
 CHART_BG = "#fafbfc"
+SIDEBAR_BG = "#1e293b"
+SIDEBAR_FG = "#cbd5e1"
+SIDEBAR_ACTIVE = "#334155"
 
 
 def _style_app():
@@ -83,14 +86,25 @@ class DinamikaApp:
 
         self.loader = DataLoader()
         self._file_path = None
+        self._history = []
+        self._active_idx = None
 
         _style_app()
         self._build_ui()
 
     def _build_ui(self):
         self._build_menu()
-        self._build_toolbar()
-        self._build_content()
+
+        outer = ttk.Frame(self.root)
+        outer.pack(fill=tk.BOTH, expand=True)
+
+        self._build_sidebar(outer)
+
+        right_frame = ttk.Frame(outer)
+        right_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self._build_toolbar(right_frame)
+        self._build_content(right_frame)
         self._build_statusbar()
 
     def _build_menu(self):
@@ -105,8 +119,148 @@ class DinamikaApp:
         self.root.bind("<Control-o>", lambda e: self.load_file())
         self.root.bind("<Control-s>", lambda e: self.save_file())
 
-    def _build_toolbar(self):
-        tb = ttk.Frame(self.root, style="Toolbar.TFrame")
+    def _build_sidebar(self, parent):
+        self.sidebar = tk.Frame(parent, bg=SIDEBAR_BG, width=220)
+        self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
+        self.sidebar.pack_propagate(False)
+
+        header = tk.Label(self.sidebar, text="Файлы", bg=SIDEBAR_BG, fg="#ffffff",
+                          font=("Segoe UI", 11, "bold"), anchor="w", padx=10, pady=8)
+        header.pack(fill=tk.X)
+
+        sep = tk.Frame(self.sidebar, bg="#475569", height=1)
+        sep.pack(fill=tk.X, padx=8)
+
+        list_frame = tk.Frame(self.sidebar, bg=SIDEBAR_BG)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+        self.file_listbox = tk.Listbox(list_frame, bg=SIDEBAR_BG, fg=SIDEBAR_FG,
+                                       selectbackground=SIDEBAR_ACTIVE,
+                                       selectforeground="#ffffff",
+                                       font=("Segoe UI", 9),
+                                       borderwidth=0, highlightthickness=0,
+                                       activestyle="none")
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL,
+                                  command=self.file_listbox.yview)
+        self.file_listbox.configure(yscrollcommand=scrollbar.set)
+        self.file_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self.file_listbox.bind("<<ListboxSelect>>", self._on_file_select)
+
+        btn_frame = tk.Frame(self.sidebar, bg=SIDEBAR_BG)
+        btn_frame.pack(fill=tk.X, padx=8, pady=(0, 8))
+
+        self.remove_btn = tk.Button(btn_frame, text="Удалить", bg="#dc2626", fg="#ffffff",
+                                    font=("Segoe UI", 9, "bold"), relief="flat",
+                                    activebackground="#ef4444", activeforeground="#ffffff",
+                                    command=self._remove_from_history)
+        self.remove_btn.pack(fill=tk.X, ipady=3)
+
+    def _on_file_select(self, event):
+        sel = self.file_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        if idx == self._active_idx:
+            return
+        self._switch_to_file(idx)
+
+    def _switch_to_file(self, idx):
+        entry = self._history[idx]
+        self._active_idx = idx
+        self._file_path = entry["path"]
+        self.loader.source_data = entry["source"]
+        self.loader.calib_data = entry["calib"]
+        self.loader.result_df = entry["result"]
+
+        self._populate_tree(self.tree_source, self.loader.source_data, max_rows=500)
+        self._populate_tree(self.tree_calib, self.loader.calib_data, max_rows=500)
+        self._populate_tree(self.tree_result, self.loader.result_df, max_rows=500)
+
+        self._draw_raw_chart()
+        self._draw_result_chart()
+
+        self.file_label.configure(text=self._file_path.name)
+        src_n = len(self.loader.source_data) if self.loader.source_data is not None else 0
+        cal_n = len(self.loader.calib_data) if self.loader.calib_data is not None else 0
+        self.status_var.set(f"Загружено: {self._file_path.name}")
+
+        if self.loader.result_df is not None and not self.loader.result_df.empty:
+            n = len(self.loader.result_df)
+            mn = self.loader.result_df.iloc[:, 1].min()
+            mx = self.loader.result_df.iloc[:, 1].max()
+            self.stats_var.set(f"Исходных: {src_n}  |  Калибровка: {cal_n}  |  Результат: {n} точек  |  {mn} — {mx} мм")
+        else:
+            self.stats_var.set(f"Исходных: {src_n}  |  Калибровка: {cal_n} точек")
+
+        self.file_listbox.selection_clear(0, tk.END)
+        self.file_listbox.selection_set(idx)
+
+    def _add_to_history(self):
+        if self._file_path is None:
+            return
+        for i, entry in enumerate(self._history):
+            if entry["path"] == self._file_path:
+                self._history[i] = {
+                    "path": self._file_path,
+                    "source": self.loader.source_data.copy() if self.loader.source_data is not None else None,
+                    "calib": self.loader.calib_data.copy() if self.loader.calib_data is not None else None,
+                    "result": self.loader.result_df.copy() if self.loader.result_df is not None else None,
+                }
+                self._active_idx = i
+                self._refresh_file_list()
+                self.file_listbox.selection_clear(0, tk.END)
+                self.file_listbox.selection_set(i)
+                return
+        entry = {
+            "path": self._file_path,
+            "source": self.loader.source_data.copy() if self.loader.source_data is not None else None,
+            "calib": self.loader.calib_data.copy() if self.loader.calib_data is not None else None,
+            "result": self.loader.result_df.copy() if self.loader.result_df is not None else None,
+        }
+        self._history.append(entry)
+        self._active_idx = len(self._history) - 1
+        self._refresh_file_list()
+        self.file_listbox.selection_clear(0, tk.END)
+        self.file_listbox.selection_set(self._active_idx)
+
+    def _refresh_file_list(self):
+        self.file_listbox.delete(0, tk.END)
+        for entry in self._history:
+            self.file_listbox.insert(tk.END, entry["path"].name)
+
+    def _remove_from_history(self):
+        sel = self.file_listbox.curselection()
+        if not sel:
+            return
+        idx = sel[0]
+        name = self._history[idx]["path"].name
+        del self._history[idx]
+        self._refresh_file_list()
+        if self._active_idx == idx:
+            if self._history:
+                new_idx = min(idx, len(self._history) - 1)
+                self._switch_to_file(new_idx)
+            else:
+                self._active_idx = None
+                self.loader = DataLoader()
+                self._file_path = None
+                self.tree_source.delete(*self.tree_source.get_children())
+                self.tree_calib.delete(*self.tree_calib.get_children())
+                self.tree_result.delete(*self.tree_result.get_children())
+                self.raw_ax.clear()
+                self.raw_canvas.draw()
+                self.result_ax.clear()
+                self.result_canvas.draw()
+                self.file_label.configure(text="Файл не загружен")
+                self.status_var.set("Готово")
+                self.stats_var.set("")
+        elif self._active_idx > idx:
+            self._active_idx -= 1
+
+    def _build_toolbar(self, parent):
+        tb = ttk.Frame(parent, style="Toolbar.TFrame")
         tb.pack(fill=tk.X, padx=0, pady=0)
 
         ttk.Label(tb, text="  Динамика", style="Header.TLabel").pack(side=tk.LEFT, padx=(12, 20))
@@ -121,8 +275,8 @@ class DinamikaApp:
         self.file_label = ttk.Label(tb, text="Файл не загружен", style="Header.TLabel")
         self.file_label.pack(side=tk.RIGHT, padx=15)
 
-    def _build_content(self):
-        main_paned = ttk.PanedWindow(self.root, orient=tk.VERTICAL)
+    def _build_content(self, parent):
+        main_paned = ttk.PanedWindow(parent, orient=tk.VERTICAL)
         main_paned.pack(fill=tk.BOTH, expand=True, padx=8, pady=(8, 0))
 
         top_paned = ttk.PanedWindow(main_paned, orient=tk.HORIZONTAL)
@@ -231,7 +385,7 @@ class DinamikaApp:
             self.tree_result.delete(*self.tree_result.get_children())
 
             self.result_ax.clear()
-            self.result_ax.text(0.5, 0.5, "Нажмите «Рассчитать»",
+            self.result_ax.text(0.5, 0.5, "Выполняется расчёт...",
                                 ha="center", va="center", transform=self.result_ax.transAxes,
                                 fontsize=13, color="#94a3b8", style="italic")
             self.result_ax.set_axis_off()
@@ -247,6 +401,7 @@ class DinamikaApp:
             self.stats_var.set(f"Исходных: {src_n}  |  Калибровка: {cal_n} точек")
 
             self.calculate()
+            self._add_to_history()
         except Exception as e:
             messagebox.showerror("Ошибка загрузки", str(e))
             self.status_var.set("Ошибка загрузки")
@@ -254,7 +409,6 @@ class DinamikaApp:
 
     def calculate(self):
         if self.loader.source_data is None or self.loader.calib_data is None:
-            messagebox.showwarning("Внимание", "Сначала загрузите Excel-файл")
             return
 
         self.status_var.set("Выполнение расчёта...")
@@ -268,8 +422,11 @@ class DinamikaApp:
             n = len(self.loader.result_df)
             mn = self.loader.result_df.iloc[:, 1].min()
             mx = self.loader.result_df.iloc[:, 1].max()
-            self.status_var.set(f"Расчёт завершён")
-            self.stats_var.set(f"Точек: {n}  |  Диапазон: {mn} — {mx} мм")
+            self.status_var.set("Расчёт завершён")
+
+            src_n = len(self.loader.source_data) if self.loader.source_data is not None else 0
+            cal_n = len(self.loader.calib_data) if self.loader.calib_data is not None else 0
+            self.stats_var.set(f"Исходных: {src_n}  |  Калибровка: {cal_n}  |  Результат: {n} точек  |  {mn} — {mx} мм")
         except Exception as e:
             messagebox.showerror("Ошибка расчёта", str(e))
             self.status_var.set("Ошибка расчёта")
