@@ -1,4 +1,6 @@
 import sys
+import os
+import json
 import random
 import string
 import tkinter as tk
@@ -89,9 +91,11 @@ class DinamikaApp:
         self._file_path = None
         self._history = []
         self._active_idx = None
+        self._history_file = Path(os.path.dirname(os.path.abspath(sys.argv[0]))) / "history.json"
 
         _style_app()
         self._build_ui()
+        self._load_history()
 
     def _build_ui(self):
         self._build_menu()
@@ -107,6 +111,8 @@ class DinamikaApp:
         self._build_toolbar(right_frame)
         self._build_content(right_frame)
         self._build_statusbar()
+
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_menu(self):
         menubar = tk.Menu(self.root, font=("Segoe UI", 10))
@@ -197,6 +203,43 @@ class DinamikaApp:
 
         self.file_listbox.selection_clear(0, tk.END)
         self.file_listbox.selection_set(idx)
+
+    def _on_close(self):
+        self._save_history()
+        self.root.destroy()
+
+    def _save_history(self):
+        paths = [str(e["path"]) for e in self._history if e["path"].exists()]
+        try:
+            self._history_file.write_text(json.dumps(paths, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _load_history(self):
+        if not self._history_file.exists():
+            return
+        try:
+            paths = json.loads(self._history_file.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        for p in paths:
+            path = Path(p)
+            if path.exists() and path.suffix.lower() == ".xlsx":
+                try:
+                    loader = DataLoader()
+                    loader.load_excel(str(path))
+                    loader.calculate()
+                    self._history.append({
+                        "path": path,
+                        "source": loader.source_data.copy() if loader.source_data is not None else None,
+                        "calib": loader.calib_data.copy() if loader.calib_data is not None else None,
+                        "result": loader.result_df.copy() if loader.result_df is not None else None,
+                    })
+                except Exception:
+                    pass
+        self._refresh_file_list()
+        if self._history:
+            self._switch_to_file(0)
 
     def _add_to_history(self):
         if self._file_path is None:
