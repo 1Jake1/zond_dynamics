@@ -378,8 +378,19 @@ class DinamikaApp:
         ttk.Label(sb, textvariable=self.stats_var, style="Status.TLabel").pack(side=tk.RIGHT)
 
     def _make_tree(self, parent):
-        container = ttk.Frame(parent)
-        container.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+        wrapper = ttk.Frame(parent)
+        wrapper.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
+
+        search_frame = ttk.Frame(wrapper)
+        search_frame.pack(fill=tk.X, pady=(0, 4))
+
+        ttk.Label(search_frame, text="Поиск:", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 4))
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_frame, textvariable=search_var, font=("Consolas", 9), width=20)
+        search_entry.pack(side=tk.LEFT, padx=(0, 4))
+
+        container = ttk.Frame(wrapper)
+        container.pack(fill=tk.BOTH, expand=True)
 
         tree = ttk.Treeview(container, show="headings", selectmode="browse")
         vsb = ttk.Scrollbar(container, orient=tk.VERTICAL, command=tree.yview)
@@ -391,12 +402,19 @@ class DinamikaApp:
         hsb.grid(row=1, column=0, sticky="ew")
         container.grid_rowconfigure(0, weight=1)
         container.grid_columnconfigure(0, weight=1)
+
+        tree._df = None
+        tree._search_var = search_var
+        search_var.trace_add("write", lambda *a, t=tree: self._filter_tree(t))
+
         return tree
 
-    def _populate_tree(self, tree, df):
-        tree.delete(*tree.get_children())
+    def _filter_tree(self, tree):
+        df = tree._df
         if df is None or df.empty:
             return
+        query = tree._search_var.get().strip().lower()
+        tree.delete(*tree.get_children())
         cols = list(df.columns)
         tree["columns"] = cols
         for c in cols:
@@ -404,10 +422,17 @@ class DinamikaApp:
             tree.column(c, width=130, minwidth=80, anchor=tk.CENTER)
         for i, (_, row) in enumerate(df.iterrows()):
             vals = [str(v) if pd.notna(v) else "" for v in row]
+            if query and not any(query in v.lower() for v in vals):
+                continue
             tag = "even" if i % 2 == 0 else "odd"
             tree.insert("", tk.END, values=vals, tags=(tag,))
         tree.tag_configure("even", background="#f8fafc")
         tree.tag_configure("odd", background="#ffffff")
+
+    def _populate_tree(self, tree, df):
+        tree._df = df if df is not None else pd.DataFrame()
+        tree._search_var.set("")
+        self._filter_tree(tree)
 
     def load_file(self):
         path = filedialog.askopenfilename(
