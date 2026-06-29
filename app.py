@@ -82,6 +82,7 @@ class DinamikaApp:
         self.root.title("Обработка данных динамики")
         self.root.geometry("1500x850")
         self.root.minsize(1000, 600)
+        self.root.state("zoomed")
         self.root.configure(bg=BG)
 
         self.loader = DataLoader()
@@ -174,9 +175,9 @@ class DinamikaApp:
         self.loader.calib_data = entry["calib"]
         self.loader.result_df = entry["result"]
 
-        self._populate_tree(self.tree_source, self.loader.source_data, max_rows=500)
-        self._populate_tree(self.tree_calib, self.loader.calib_data, max_rows=500)
-        self._populate_tree(self.tree_result, self.loader.result_df, max_rows=500)
+        self._populate_tree(self.tree_source, self.loader.source_data)
+        self._populate_tree(self.tree_calib, self.loader.calib_data)
+        self._populate_tree(self.tree_result, self.loader.result_df)
 
         self._draw_raw_chart()
         self._draw_result_chart()
@@ -349,7 +350,7 @@ class DinamikaApp:
         container.grid_columnconfigure(0, weight=1)
         return tree
 
-    def _populate_tree(self, tree, df, max_rows=500):
+    def _populate_tree(self, tree, df):
         tree.delete(*tree.get_children())
         if df is None or df.empty:
             return
@@ -358,7 +359,7 @@ class DinamikaApp:
         for c in cols:
             tree.heading(c, text=c)
             tree.column(c, width=130, minwidth=80, anchor=tk.CENTER)
-        for i, (_, row) in enumerate(df.head(max_rows).iterrows()):
+        for i, (_, row) in enumerate(df.iterrows()):
             vals = [str(v) if pd.notna(v) else "" for v in row]
             tag = "even" if i % 2 == 0 else "odd"
             tree.insert("", tk.END, values=vals, tags=(tag,))
@@ -380,8 +381,8 @@ class DinamikaApp:
             self.loader.load_excel(path)
             self._file_path = Path(path)
 
-            self._populate_tree(self.tree_source, self.loader.source_data, max_rows=500)
-            self._populate_tree(self.tree_calib, self.loader.calib_data, max_rows=500)
+            self._populate_tree(self.tree_source, self.loader.source_data)
+            self._populate_tree(self.tree_calib, self.loader.calib_data)
             self.tree_result.delete(*self.tree_result.get_children())
 
             self.result_ax.clear()
@@ -416,7 +417,7 @@ class DinamikaApp:
 
         try:
             self.loader.calculate()
-            self._populate_tree(self.tree_result, self.loader.result_df, max_rows=500)
+            self._populate_tree(self.tree_result, self.loader.result_df)
             self._draw_result_chart()
 
             n = len(self.loader.result_df)

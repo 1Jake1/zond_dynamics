@@ -15,15 +15,10 @@ class DataLoader:
 
         time_col = []
         tugriki_col = []
-        for row in ws.iter_rows(min_row=3, max_row=ws.max_row, min_col=1, max_col=1, values_only=True):
-            if row[0] is None:
-                break
-            time_col.append(row[0])
-
-        for row in ws.iter_rows(min_row=3, max_row=ws.max_row, min_col=2, max_col=2, values_only=True):
-            if row[0] is None:
-                break
-            tugriki_col.append(row[0])
+        for row in ws.iter_rows(min_row=3, max_row=ws.max_row, min_col=1, max_col=2, values_only=True):
+            if row[0] is not None and row[1] is not None:
+                time_col.append(row[0])
+                tugriki_col.append(row[1])
 
         n = min(len(time_col), len(tugriki_col))
         self.source_data = pd.DataFrame({
